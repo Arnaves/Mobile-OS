@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """AXIOM: local brain switchboard for Termux. Stdlib only."""
-import base64, configparser, json, os, re, signal, subprocess, sys, time, urllib.request
+import base64, configparser, json, os, re, signal, subprocess, sys, threading, time, urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 AX = os.path.expanduser("~/axiom")
 CONF = configparser.ConfigParser()
@@ -76,23 +77,43 @@ def memory():
     parts = [open(os.path.join(d, f)).read() for f in sorted(os.listdir(d)) if f.endswith(".md")] if os.path.isdir(d) else []
     return "\n\n".join(parts)
 
-def chat(content, brain):
-    start(brain)
+REMEMBER = re.compile(r"^\s*remember( that)?[:,]?\s+(.+)", re.I | re.S)
+
+def remember(fact):
+    with open(os.path.join(AX, "memory", "notes.md"), "a") as f:
+        f.write(f"- {fact.strip()}  ({time.strftime('%Y-%m-%d')})\n")
+    return "Stored in memory core."
+
+def stream(content, brain):
+    """Yield reply text chunks from the given brain (loads it if needed)."""
+    if isinstance(content, str):
+        m = REMEMBER.match(content)
+        if m:
+            yield remember(m.group(2))
+            return
+    with _lock:
+        start(brain)
     system = ("You are AXIOM, an on-device AI running fully offline on the user's phone. "
               "Be concise and precise.\n\nWhat you know about the user:\n" + memory())
     body = {"messages": [{"role": "system", "content": system},
                          {"role": "user", "content": content}], "stream": True}
     req = urllib.request.Request(URL + "/v1/chat/completions", json.dumps(body).encode(),
                                  {"Content-Type": "application/json"})
-    out = []
     with urllib.request.urlopen(req) as r:
         for line in r:
             line = line.decode().strip()
             if not line.startswith("data:") or line.endswith("[DONE]"):
                 continue
-            delta = json.loads(line[5:])["choices"][0]["delta"].get("content") or ""
-            out.append(delta)
-            print(delta, end="", flush=True)
+            choices = json.loads(line[5:]).get("choices") or [{}]
+            delta = choices[0].get("delta", {}).get("content") or ""
+            if delta:
+                yield delta
+
+def chat(content, brain):
+    out = []
+    for d in stream(content, brain):
+        out.append(d)
+        print(d, end="", flush=True)
     print()
     return "".join(out)
 
@@ -116,11 +137,99 @@ def voice():
         reply = re.sub(r"<think>.*?</think>", "", reply, flags=re.S)
         subprocess.run(["termux-tts-speak", reply[:1500]])
 
+_cache = {"t": 0, "bat": None}
+
+def vitals():
+    v = {"brain": current(), "up": healthy(), "brains": list(BRAINS)}
+    try:
+        mi = dict(l.split(":", 1) for l in open("/proc/meminfo"))
+        tot, av = (int(mi[k].split()[0]) for k in ("MemTotal", "MemAvailable"))
+        v["ram"] = round(100 * (tot - av) / tot)
+    except Exception:
+        pass
+    if time.time() - _cache["t"] > 30:
+        try:
+            _cache["bat"] = json.loads(subprocess.run(["termux-battery-status"], capture_output=True,
+                                                      text=True, timeout=5).stdout)
+        except Exception:
+            _cache["bat"] = None
+        _cache["t"] = time.time()
+    if _cache["bat"]:
+        v["battery"] = _cache["bat"].get("percentage")
+        v["temp"] = _cache["bat"].get("temperature")
+    return v
+
+class Hud(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def _json(self, obj, code=200):
+        b = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(b)
+
+    def do_GET(self):
+        if self.path in ("/", "/index.html"):
+            b = open(HUD_FILE, "rb").read()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b)
+        elif self.path == "/api/status":
+            self._json(vitals())
+        elif self.path == "/api/memory":
+            self._json({"memory": memory()})
+        else:
+            self._json({"error": "not found"}, 404)
+
+    def do_POST(self):
+        req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+        if self.path == "/api/stop":
+            stop()
+            return self._json({"ok": True})
+        if self.path != "/api/chat":
+            return self._json({"error": "not found"}, 404)
+        msg, img = req.get("message", ""), req.get("image")
+        brain = req.get("brain") or "auto"
+        if img:
+            brain = "vision"
+            content = [{"type": "text", "text": msg or "Describe what you see."},
+                       {"type": "image_url", "image_url": {"url": img}}]
+        else:
+            brain = route(msg) if brain == "auto" else brain
+            content = msg
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson")
+        self.end_headers()
+        send = lambda o: (self.wfile.write((json.dumps(o) + "\n").encode()), self.wfile.flush())
+        try:
+            send({"brain": brain, "loading": current() != brain})
+            for d in stream(content, brain):
+                send({"d": d})
+        except SystemExit as e:
+            send({"error": str(e)})
+        except Exception as e:
+            send({"error": f"{type(e).__name__}: {e}"})
+        send({"done": True})
+
+HUD_FILE = os.environ.get("AXIOM_HUD", os.path.join(AX, "hud.html"))
+HUD_PORT = CONF.getint("server", "hud_port", fallback=7777)
+_lock = threading.Lock()
+
+def hud():
+    srv = ThreadingHTTPServer(("127.0.0.1", HUD_PORT), Hud)
+    print(f"[axiom] HUD online at http://127.0.0.1:{HUD_PORT}  (Ctrl+C to exit)")
+    srv.serve_forever()
+
 USAGE = """AXIOM: local AI switchboard
   axiom ask "question"        auto-route to the best brain
   axiom ask -b code "..."     force a brain (chat|think|code|vision)
   axiom see ["question"]      take a photo and ask the vision brain
   axiom voice                 hands-free talk loop (offline)
+  axiom hud                   launch the HUD app at http://127.0.0.1:7777
+  axiom remember "fact"       store a fact in the memory core
   axiom start <brain>         load a brain + web UI at http://127.0.0.1:8080
   axiom stop | status"""
 
@@ -145,6 +254,10 @@ def main(a):
         see(" ".join(a[1:]))
     elif a[0] == "voice":
         voice()
+    elif a[0] == "hud":
+        hud()
+    elif a[0] == "remember":
+        print(remember(" ".join(a[1:])))
     else:
         print(USAGE); sys.exit(1)
 
