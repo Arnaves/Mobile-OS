@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="theme-color" content="#04070c">
+<title>AXIOM</title>
+<style>
+:root{
+  --bg:#04070c; --panel:#0a111b; --line:#14273a; --text:#cfe8f5; --dim:#5d7a90;
+  --c:#3fe0ff; --chat:#3fe0ff; --think:#ffb347; --code:#ff4fd8; --vision:#5dff9c;
+  --accent:var(--c); --mono:ui-monospace,"JetBrains Mono","Roboto Mono",Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--text);font:14px/1.5 var(--mono)}
+body{display:flex;flex-direction:column;overflow:hidden;
+  background:radial-gradient(ellipse at 50% 18%,color-mix(in srgb,var(--accent) 12%,transparent),transparent 60%),
+  repeating-linear-gradient(0deg,transparent 0 3px,rgba(255,255,255,.012) 3px 4px),var(--bg);
+  padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+body[data-brain=think]{--accent:var(--think)} body[data-brain=code]{--accent:var(--code)}
+body[data-brain=vision]{--accent:var(--vision)}
+
+header{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);
+  font-size:11px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase}
+.mark{color:var(--accent);font-weight:700;font-size:15px;letter-spacing:.35em;text-shadow:0 0 12px var(--accent)}
+header .sp{flex:1}
+.meter{display:flex;align-items:center;gap:6px}
+.bar{width:34px;height:4px;background:var(--line);border-radius:2px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .6s}
+
+#core{position:relative;flex:none;height:min(34vh,230px);display:grid;place-items:center;transition:height .4s}
+body.chatting #core{height:110px}
+.reactor{position:relative;width:min(30vh,190px);aspect-ratio:1;transition:width .4s}
+body.chatting .reactor{width:88px}
+.reactor svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.ring{fill:none;stroke:var(--accent);transform-origin:50% 50%}
+.r1{stroke-width:1;opacity:.35}
+.r2{stroke-width:2.5;stroke-dasharray:40 18 8 18;animation:spin 14s linear infinite}
+.r3{stroke-width:1.5;stroke-dasharray:2 6;opacity:.7;animation:spin 30s linear infinite reverse}
+.r4{stroke-width:4;stroke-dasharray:70 200;stroke-linecap:round;opacity:.9;animation:spin 3.2s cubic-bezier(.6,0,.4,1) infinite}
+.orb{position:absolute;inset:32%;border-radius:50%;
+  background:radial-gradient(circle,#fff 0,var(--accent) 30%,color-mix(in srgb,var(--accent) 30%,transparent) 62%,transparent 72%);
+  filter:blur(.5px);animation:breathe 4s ease-in-out infinite}
+body[data-state=busy] .r2{animation-duration:2.2s} body[data-state=busy] .r4{animation-duration:.9s}
+body[data-state=busy] .orb{animation-duration:.8s}
+body[data-state=loading] .r4{animation-duration:1.4s;stroke-dasharray:20 30}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes breathe{50%{transform:scale(.82);opacity:.75}}
+.status{position:absolute;bottom:4px;left:0;right:0;text-align:center;font-size:10px;letter-spacing:.3em;color:var(--accent);text-transform:uppercase}
+body.chatting .status{display:none}
+
+nav{display:flex;gap:6px;padding:8px 16px;overflow-x:auto;scrollbar-width:none;flex:none}
+nav button{flex:none;font:inherit;font-size:11px;letter-spacing:.14em;padding:6px 12px;border-radius:2px;
+  background:transparent;color:var(--dim);border:1px solid var(--line);
+  clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px)}
+nav button.on{color:var(--bg);background:var(--accent);border-color:var(--accent);box-shadow:0 0 14px var(--accent)}
+nav button[data-b=think]{--accent:var(--think)} nav button[data-b=code]{--accent:var(--code)}
+nav button[data-b=vision]{--accent:var(--vision)} nav button[data-b=chat],nav button[data-b=auto]{--accent:var(--chat)}
+.ai[data-b=chat]{--accent:var(--chat)} .ai[data-b=think]{--accent:var(--think)} .ai[data-b=code]{--accent:var(--code)} .ai[data-b=vision]{--accent:var(--vision)}
+
+#log{flex:1;overflow-y:auto;padding:8px 16px 16px;display:flex;flex-direction:column;gap:12px;scroll-behavior:smooth}
+.hint{margin:auto 0;color:var(--dim);font-size:12px;text-align:center;line-height:2}
+.hint b{color:var(--text);font-weight:400;cursor:pointer;border-bottom:1px dashed var(--line)}
+.msg{max-width:100%;overflow-wrap:anywhere;animation:in .25s ease-out}
+@keyframes in{from{opacity:0;transform:translateY(6px)}}
+.me{align-self:flex-end;max-width:85%;background:var(--panel);border:1px solid var(--line);padding:8px 12px;border-radius:10px 10px 2px 10px}
+.me img{display:block;max-width:160px;border-radius:6px;margin-bottom:6px}
+.ai{border-left:2px solid var(--accent);padding:2px 0 2px 12px}
+.tag{font-size:10px;letter-spacing:.2em;color:var(--accent);text-transform:uppercase;margin-bottom:4px}
+.ai p{margin:0 0 .6em} .ai p:last-child{margin:0}
+.ai code{background:var(--panel);padding:1px 5px;border-radius:3px;color:var(--accent)}
+.ai pre{position:relative;background:#02050a;border:1px solid var(--line);border-radius:6px;padding:10px;margin:.5em 0;overflow-x:auto;font-size:12.5px}
+.ai pre code{background:none;padding:0;color:var(--text)}
+.ai pre button{position:absolute;top:4px;right:4px;font:inherit;font-size:10px;background:var(--panel);color:var(--dim);border:1px solid var(--line);border-radius:3px;padding:2px 6px}
+details{font-size:12px;color:var(--dim);border:1px dashed var(--line);border-radius:4px;padding:4px 8px;margin-bottom:6px}
+details summary{cursor:pointer;letter-spacing:.15em;font-size:10px;text-transform:uppercase}
+details div{white-space:pre-wrap;margin-top:4px}
+.err{color:#ff6b6b}
+.cursor::after{content:"▍";color:var(--accent);animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+
+form{display:flex;gap:8px;align-items:flex-end;padding:10px 16px 12px;border-top:1px solid var(--line);background:color-mix(in srgb,var(--bg) 85%,transparent)}
+.preview{position:relative} .preview img{width:40px;height:40px;object-fit:cover;border-radius:6px;border:1px solid var(--vision)}
+textarea{flex:1;min-width:0;resize:none;max-height:120px;font:inherit;color:var(--text);background:var(--panel);
+  border:1px solid var(--line);border-radius:8px;padding:10px 12px;outline:none}
+textarea:focus{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.ib{flex:none;width:42px;height:42px;display:grid;place-items:center;border-radius:8px;border:1px solid var(--line);
+  background:var(--panel);color:var(--dim);cursor:pointer}
+.ib svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.ib.go{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.ib.live{color:var(--accent);border-color:var(--accent);animation:breathe 1s infinite}
+.ib.on{color:var(--accent);border-color:var(--accent)}
+
+/* ---------- app additions ---------- */
+#core{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:auto;padding:14px 0 6px}
+body.chatting #core{height:auto;padding:6px 0}
+.reactor{width:min(24vh,168px)} body.chatting .reactor{width:64px}
+.status{position:static}
+nav button{padding:6px 10px}
+header button{font:inherit;font-size:10px;letter-spacing:.18em;color:var(--accent);background:transparent;border:1px solid var(--line);padding:4px 8px;border-radius:2px}
+#hello{text-align:center;font-size:clamp(34px,11vw,52px);font-weight:200;letter-spacing:.08em;color:var(--text);opacity:.9}
+#hello small{display:block;font-size:11px;letter-spacing:.3em;color:var(--dim);text-transform:uppercase}
+body.chatting #hello{display:none}
+#core{cursor:pointer}
+#dock{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;padding:4px 16px 0;flex:none}
+body.chatting #dock{display:none}
+.app{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10px;color:var(--dim);text-align:center;background:none;border:0;font-family:inherit;min-width:0}
+.app img{width:44px;height:44px;border-radius:12px}
+.app span{width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dockhint{grid-column:1/-1;font-size:10px;color:var(--dim);text-align:center;letter-spacing:.1em}
+.panel{position:fixed;inset:0;z-index:10;background:color-mix(in srgb,var(--bg) 94%,transparent);backdrop-filter:blur(8px);
+  display:flex;flex-direction:column;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);transform:translateY(100%);transition:transform .28s cubic-bezier(.2,.8,.2,1)}
+.panel.open{transform:none}
+.panel h2{display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:400;letter-spacing:.3em;color:var(--accent);padding:14px 16px;border-bottom:1px solid var(--line);text-transform:uppercase}
+.panel h2 button{font:inherit;font-size:16px;color:var(--dim);background:none;border:0;padding:0 4px}
+.panel .scroll{flex:1;overflow-y:auto;padding:14px 16px}
+#appSearch{width:100%;font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;outline:none;margin-bottom:14px}
+#appGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px 8px}
+.app.pinned img{box-shadow:0 0 0 2px var(--accent)}
+.sec{font-size:10px;letter-spacing:.3em;color:var(--dim);margin:18px 0 8px;text-transform:uppercase}
+.sec:first-child{margin-top:0}
+.card{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--panel)}
+.card .row{display:flex;align-items:center;gap:10px}
+.card .row b{font-weight:400;letter-spacing:.15em;text-transform:uppercase;flex:1}
+.card p{font-size:12px;color:var(--dim);margin-top:4px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--line);flex:none}
+.card[data-s=ready] .dot{background:var(--vision);box-shadow:0 0 8px var(--vision)}
+.card[data-s=downloading] .dot{background:var(--think);animation:breathe 1s infinite}
+.card[data-s=error] .dot{background:#ff6b6b}
+.btn{font:inherit;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);background:transparent;border:1px solid var(--accent);border-radius:4px;padding:6px 10px}
+.btn.ghost{color:var(--dim);border-color:var(--line)}
+.btn.solid{background:var(--accent);color:var(--bg)}
+.prog{height:3px;background:var(--line);border-radius:2px;margin-top:10px;overflow:hidden}
+.prog i{display:block;height:100%;background:var(--think);transition:width .5s}
+#memText{width:100%;min-height:140px;font:inherit;font-size:12px;color:var(--text);background:#02050a;border:1px solid var(--line);border-radius:6px;padding:10px;resize:vertical;outline:none}
+.check{color:var(--vision)} .cross{color:var(--dim)}
+.boot{border:1px solid var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--panel))}
+.boot b{color:var(--accent)}
+.sys .tag{color:var(--vision)} .msg.ai.sys{border-color:var(--vision)}
+#clearBtn{margin-left:auto}
+</style>
+</head>
+<body data-brain="chat" data-state="idle">
+<header>
+  <span class="mark">AXIOM</span><span class="sp"></span>
+  <button id="appsBtn" type="button">APPS</button><button id="coresBtn">CORES</button>
+  <span class="meter" title="RAM in use"><span class="bar"><i id="ram"></i></span></span>
+  <span id="bat">--%</span><span id="temp"></span>
+</header>
+
+<section id="core">
+  <div id="hello"><span id="clock">--:--</span><small id="date"></small></div>
+  <div class="reactor">
+    <svg viewBox="0 0 100 100" aria-hidden="true">
+      <circle class="ring r1" cx="50" cy="50" r="48"/>
+      <circle class="ring r2" cx="50" cy="50" r="42"/>
+      <circle class="ring r3" cx="50" cy="50" r="36"/>
+      <circle class="ring r4" cx="50" cy="50" r="30"/>
+    </svg>
+    <div class="orb"></div>
+  </div>
+  <div class="status" id="status">booting core</div>
+</section>
+<div id="dock"></div>
+
+<nav id="brains">
+  <button data-b="auto" class="on">AUTO</button><button data-b="chat">CHAT</button>
+  <button data-b="think">THINK</button><button data-b="code">CODE</button><button data-b="vision">VISION</button><button id="clearBtn" type="button" title="New conversation">⟲</button>
+</nav>
+
+<main id="log">
+  <div class="hint">All intelligence on-device · zero cloud<br>
+    try <b>open YouTube</b> · <b>set an alarm for 6:30 am</b><br>
+    <b>plan a 3-day trip to Goa</b> · <b>write a python todo app</b><br>
+    <b>remember that I prefer short answers</b></div>
+</main>
+
+<form id="f">
+  <input type="file" id="cam" accept="image/*" capture="environment" hidden>
+  <button type="button" class="ib" id="camBtn" title="Camera"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
+  <span class="preview" id="pv" hidden><img id="pvImg" alt=""></span>
+  <textarea id="q" rows="1" placeholder="Command AXIOM…" enterkeyhint="send"></textarea>
+  <button type="button" class="ib" id="mic" title="Voice"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+  <button type="button" class="ib" id="tts" title="Speak replies"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg></button>
+  <button class="ib go" title="Send"><svg viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></svg></button>
+</form>
+
+
+<section class="panel" id="appsPanel">
+  <h2>Applications <button type="button" data-close>✕</button></h2>
+  <div class="scroll"><input id="appSearch" placeholder="Search apps…" autocomplete="off">
+  <div id="appGrid"></div>
+  <p class="dockhint" style="margin-top:18px">Long-press an app to pin it to your dock</p></div>
+</section>
+
+<section class="panel" id="coresPanel">
+  <h2>Cores &amp; system <button type="button" data-close>✕</button></h2>
+  <div class="scroll">
+    <div id="bootCard"></div>
+    <div class="sec">AI cores · one loaded at a time</div>
+    <div id="cores"></div>
+    <div class="sec">Make this phone AXIOM</div>
+    <div class="card"><div class="row"><span id="homeState"></span><b>Home screen</b><button class="btn" type="button" id="setHome">Set</button></div>
+      <p>Replace the HyperOS launcher with AXIOM. Your phone opens straight into the core.</p></div>
+    <div class="card"><div class="row"><span id="asstState"></span><b>Assistant</b><button class="btn" type="button" id="setAsst">Set</button></div>
+      <p>Hold the power or home button to summon AXIOM by voice. Choose <i>AXIOM</i> under Digital assistant.</p></div>
+    <div class="card"><div class="row"><span id="micState"></span><b>Microphone</b><button class="btn" type="button" id="setMic">Allow</button></div>
+      <p>Needed for voice commands.</p></div>
+    <div class="sec">Memory core</div>
+    <textarea id="memText" placeholder="Facts AXIOM knows about you. Say “remember that …” to add more."></textarea>
+    <div style="display:flex;gap:8px;margin-top:8px"><button class="btn" type="button" id="memSave">Save memory</button>
+      <button class="btn ghost" type="button" id="unload">Unload AI · free RAM</button></div>
+    <p class="dockhint" style="margin-top:18px" id="devLine"></p>
+  </div>
+</section>
+<script>
+const $ = s => document.querySelector(s);
+const N = window.Native || null;
+const log = $("#log"), q = $("#q"), body = document.body;
+let brain = "auto", image = null, speak = false, busy = false, voiceTurn = false, history = [], vit = {};
+const store = { get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+                set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} } };
+speak = store.get("tts", false);
+$("#tts").classList.toggle("on", speak);
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function md(src) {
+  const parts = src.split(/```(\w*)\n?([\s\S]*?)(?:```|$)/);
+  let html = "";
+  for (let i = 0; i < parts.length; i += 3) {
+    html += esc(parts[i]).split(/\n{2,}/).filter(s => s.trim()).map(p =>
+      "<p>" + p.replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/\n/g, "<br>") + "</p>").join("");
+    if (i + 2 < parts.length) html += `<pre><button type="button">COPY</button><code>${esc(parts[i + 2])}</code></pre>`;
+  }
+  return html;
+}
+function render(el, text) {
+  const m = text.match(/^\s*<think>([\s\S]*?)(<\/think>|$)([\s\S]*)/);
+  el.innerHTML = m ? `<details${m[2] ? "" : " open"}><summary>reasoning trace</summary><div>${esc(m[1].trim())}</div></details>` + md(m[3]) : md(text);
+}
+log.addEventListener("click", e => {
+  if (e.target.matches("pre button")) {
+    navigator.clipboard?.writeText(e.target.nextElementSibling.textContent);
+    e.target.textContent = "COPIED"; setTimeout(() => e.target.textContent = "COPY", 1200);
+  }
+  if (e.target.matches(".hint b")) { q.value = e.target.textContent; $("#f").requestSubmit(); }
+});
+
+function setBrainUI(b) { body.dataset.brain = (b === "auto" || b === "memory" || b === "system") ? "chat" : b; }
+$("#brains").addEventListener("click", e => {
+  const b = e.target.dataset.b; if (!b) return;
+  brain = b; document.querySelectorAll("nav button[data-b]").forEach(x => x.classList.toggle("on", x === e.target));
+  setBrainUI(b);
+});
+function setState(s, label) { body.dataset.state = s; $("#status").textContent = label; }
+
+/* ---------- speech out ---------- */
+function say(text) {
+  const t = text.replace(/<think>[\s\S]*?(<\/think>|$)/, "").replace(/```[\s\S]*?```/g, " (code on screen) ").replace(/[*`#>]/g, "").trim().slice(0, 1500);
+  if (!t) return;
+  if (N) N.speak(t); else if (window.speechSynthesis) { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(t)); }
+}
+$("#tts").onclick = () => {
+  speak = !speak; $("#tts").classList.toggle("on", speak); store.set("tts", speak);
+  if (!speak) N ? N.hush() : window.speechSynthesis?.cancel();
+};
+
+/* ---------- voice in ---------- */
+window.onVoiceReady = () => { $("#mic").classList.add("live"); setState("busy", "listening"); };
+window.onVoice = (text, final) => { q.value = text; if (final) { $("#mic").classList.remove("live"); setState("idle", "standby"); voiceTurn = true; $("#f").requestSubmit(); } };
+window.onVoiceEnd = err => { $("#mic").classList.remove("live"); setState("idle", err || "standby"); };
+window.axiomVoice = () => { closePanels(); N ? N.listen() : $("#mic").click(); };
+$("#mic").onclick = () => {
+  if (N) { if ($("#mic").classList.contains("live")) N.stopListening(); else N.listen(); return; }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { q.placeholder = "Voice not supported here"; return; }
+  const r = new SR(); r.lang = navigator.language || "en-US"; r.interimResults = true;
+  $("#mic").classList.add("live");
+  r.onresult = e => { q.value = [...e.results].map(x => x[0].transcript).join(""); };
+  r.onend = () => { $("#mic").classList.remove("live"); if (q.value.trim()) { voiceTurn = true; $("#f").requestSubmit(); } };
+  r.start();
+};
+
+/* ---------- camera ---------- */
+function setImage(url) { image = url; $("#pvImg").src = url || ""; $("#pv").hidden = !url; if (url) q.focus(); }
+window.onPhoto = url => { if (url) setImage(url); };
+$("#camBtn").onclick = () => N ? N.camera() : $("#cam").click();
+$("#cam").onchange = () => {
+  const file = $("#cam").files[0]; if (!file) return;
+  const img = new Image(), url = URL.createObjectURL(file);
+  img.onload = () => {
+    const k = Math.min(1, 896 / Math.max(img.width, img.height)), c = document.createElement("canvas");
+    c.width = img.width * k; c.height = img.height * k; c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    setImage(c.toDataURL("image/jpeg", .85)); URL.revokeObjectURL(url);
+  };
+  img.src = url; $("#cam").value = "";
+};
+$("#pv").onclick = () => setImage(null);
+
+q.addEventListener("input", () => { q.style.height = "auto"; q.style.height = q.scrollHeight + "px"; });
+q.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#f").requestSubmit(); } });
+
+/* ---------- conversation ---------- */
+function bubble(text, img) {
+  body.classList.add("chatting"); log.querySelector(".hint")?.remove();
+  const me = document.createElement("div"); me.className = "msg me";
+  me.innerHTML = (img ? `<img src="${img}" alt="">` : "") + esc(text || "Describe this.");
+  const ai = document.createElement("div"); ai.className = "msg ai";
+  ai.innerHTML = `<div class="tag">…</div><div class="out cursor"></div>`;
+  log.append(me, ai); log.scrollTop = log.scrollHeight;
+  return ai;
+}
+$("#clearBtn").onclick = () => {
+  history = []; log.innerHTML = ""; body.classList.remove("chatting");
+  log.insertAdjacentHTML("beforeend", '<div class="hint">Memory of this conversation cleared.<br>Long-term memory is kept in CORES.</div>');
+};
+
+$("#f").onsubmit = async e => {
+  e.preventDefault();
+  const text = q.value.trim(); if ((!text && !image) || busy) return;
+  const spoken = voiceTurn || speak; voiceTurn = false;
+  const img = image; q.value = ""; q.style.height = "auto"; setImage(null);
+  const ai = bubble(text, img), tag = ai.querySelector(".tag"), out = ai.querySelector(".out");
+
+  if (N && !img) {                         // phone actions first: instant, no model needed
+    const r = JSON.parse(N.command(text));
+    if (r.handled) {
+      ai.classList.add("sys"); ai.dataset.b = "vision"; tag.textContent = "system action";
+      out.classList.remove("cursor"); render(out, r.reply); if (spoken) say(r.reply); return;
+    }
+  }
+  busy = true;
+  let full = "";
+  try {
+    const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text, brain, image: img, history }) });
+    const rd = res.body.getReader(), dec = new TextDecoder(); let buf = "";
+    for (;;) {
+      const { value, done } = await rd.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i; while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1); if (!line) continue;
+        const m = JSON.parse(line);
+        if (m.brain) { ai.dataset.b = m.brain === "memory" ? "chat" : m.brain; tag.textContent = m.brain === "memory" ? "memory core" : m.brain + " brain"; setBrainUI(m.brain);
+          setState(m.loading ? "loading" : "busy", m.loading ? `loading ${m.brain} core` : `${m.brain} · processing`); }
+        if (m.ready) setState("busy", "processing");
+        if (m.d) { full += m.d; render(out, full); log.scrollTop = log.scrollHeight; }
+        if (m.error) { out.insertAdjacentHTML("beforeend", `<p class="err">⚠ ${esc(m.error)}</p>`); if (/CORES/.test(m.error)) openPanel("coresPanel"); }
+      }
+    }
+  } catch (err) {
+    out.innerHTML = `<p class="err">⚠ Link to AXIOM core lost. Try again in a moment.</p>`;
+  }
+  out.classList.remove("cursor"); busy = false; setState("idle", "standby");
+  if (brain === "auto") setBrainUI("auto");
+  if (full && !img) {
+    history.push({ role: "user", content: text }, { role: "assistant", content: full.replace(/<think>[\s\S]*?<\/think>/, "").trim() });
+    history = history.slice(-12);
+  }
+  if (spoken && full) say(full);
+};
+
+/* ---------- panels ---------- */
+function openPanel(id) { closePanels(); $("#" + id).classList.add("open"); if (id === "coresPanel") refreshCores(); if (id === "appsPanel") loadApps(); }
+function closePanels() { let any = false; document.querySelectorAll(".panel.open").forEach(p => { p.classList.remove("open"); any = true; }); return any; }
+window.axiomBack = () => closePanels();
+window.axiomHome = () => { closePanels(); log.scrollTop = 0; };
+document.querySelectorAll("[data-close]").forEach(b => b.onclick = closePanels);
+$("#coresBtn").onclick = () => openPanel("coresPanel");
+$("#appsBtn").onclick = () => openPanel("appsPanel");
+$("#core").onclick = () => { if (!body.classList.contains("chatting")) axiomVoice(); };
+
+/* ---------- launcher ---------- */
+let apps = [], pins = store.get("pins", null);
+function appEl(a) {
+  const b = document.createElement("button"); b.type = "button"; b.className = "app" + (pins.includes(a.pkg) ? " pinned" : "");
+  b.innerHTML = `<img loading="lazy" src="/api/icon?pkg=${encodeURIComponent(a.pkg)}" alt=""><span>${esc(a.label)}</span>`;
+  let t, long = false;
+  b.onpointerdown = () => { long = false; t = setTimeout(() => { long = true; togglePin(a.pkg); }, 550); };
+  b.onpointerup = b.onpointerleave = () => clearTimeout(t);
+  b.onclick = () => { if (!long) N && N.launch(a.pkg); };
+  return b;
+}
+function togglePin(pkg) {
+  pins = pins.includes(pkg) ? pins.filter(p => p !== pkg) : [...pins, pkg].slice(-5);
+  store.set("pins", pins); renderDock(); renderApps();
+}
+function renderDock() {
+  const d = $("#dock"); d.innerHTML = "";
+  if (!N) return;
+  const list = pins.map(p => apps.find(a => a.pkg === p)).filter(Boolean);
+  list.forEach(a => d.append(appEl(a)));
+  if (!list.length) d.innerHTML = '<p class="dockhint">Open APPS and long-press to pin favourites here</p>';
+}
+function renderApps() {
+  const f = $("#appSearch").value.toLowerCase(), g = $("#appGrid"); g.innerHTML = "";
+  apps.filter(a => a.label.toLowerCase().includes(f)).forEach(a => g.append(appEl(a)));
+}
+async function loadApps() {
+  if (!N) return;
+  try { apps = await (await fetch("/api/apps")).json(); } catch (e) { return; }
+  if (pins === null) {   // first run: sensible default dock
+    const want = ["dialer", "phone", "messag", "camera", "chrome", "gallery", "photos", "whatsapp", "youtube"];
+    pins = want.map(w => apps.find(a => a.label.toLowerCase().includes(w))?.pkg).filter((p, i, s) => p && s.indexOf(p) === i).slice(0, 5);
+    store.set("pins", pins);
+  }
+  renderDock(); renderApps();
+}
+$("#appSearch").oninput = renderApps;
+$("#appSearch").onkeydown = e => { if (e.key === "Enter") { const a = apps.find(a => a.label.toLowerCase().includes($("#appSearch").value.toLowerCase())); if (a) N && N.launch(a.pkg); } };
+if (!N) { $("#appsBtn").hidden = true; $("#coresBtn").hidden = true; }
+
+/* ---------- cores & system ---------- */
+const gb = b => (b / 1e9).toFixed(2) + " GB";
+let models = [], coresTimer = null;
+async function refreshCores() {
+  try { models = await (await fetch("/api/models")).json(); } catch (e) { return; }
+  const any = models.some(m => m.status === "ready");
+  $("#bootCard").innerHTML = any ? "" : `<div class="card boot"><b>SYSTEM INITIALIZATION</b><p>AXIOM needs at least one AI core. Start with <b>CHAT</b> (~2.5 GB, Wi-Fi recommended). Each core downloads once, then runs fully offline.</p></div>`;
+  $("#cores").innerHTML = models.map(m => {
+    const pct = m.total ? Math.round(100 * m.done / m.total) : 0;
+    const act = m.status === "ready" ? `<button class="btn ghost" type="button" data-del="${m.id}">Delete</button>`
+      : m.status === "downloading" ? `<button class="btn ghost" type="button" data-cancel="${m.id}">${pct}% · Stop</button>`
+      : `<button class="btn${any ? "" : " solid"}" type="button" data-dl="${m.id}">${m.status === "error" ? "Retry" : "Get"} · ${m.gb} GB</button>`;
+    return `<div class="card" data-s="${m.status}"><div class="row"><span class="dot"></span><b>${m.title}</b>${act}</div>
+      <p>${esc(m.blurb)} · <span style="opacity:.7">${esc(m.repo)}</span></p>
+      ${m.status === "downloading" ? `<div class="prog"><i style="width:${pct}%"></i></div><p>${gb(m.done)} / ${gb(m.total)}</p>` : ""}
+      ${m.error ? `<p class="err">${esc(m.error)}</p>` : ""}</div>`;
+  }).join("");
+  if (N) {
+    const s = JSON.parse(N.system()), mark = ok => ok ? '<span class="check">●</span>' : '<span class="cross">○</span>';
+    $("#homeState").innerHTML = mark(s.home); $("#asstState").innerHTML = mark(s.assistant); $("#micState").innerHTML = mark(s.mic);
+    $("#setHome").textContent = s.home ? "Active" : "Set"; $("#setAsst").textContent = s.assistant ? "Active" : "Set"; $("#setMic").textContent = s.mic ? "Granted" : "Allow";
+  }
+  if (document.activeElement !== $("#memText")) {
+    try { $("#memText").value = (await (await fetch("/api/memory")).json()).memory; } catch (e) {}
+  }
+  $("#devLine").textContent = `${vit.device || ""} · ${vit.ramGb || "?"} GB RAM · all inference on-device`;
+  clearTimeout(coresTimer);
+  if ($("#coresPanel").classList.contains("open")) coresTimer = setTimeout(refreshCores, models.some(m => m.status === "downloading") ? 1000 : 4000);
+}
+$("#cores").onclick = async e => {
+  const b = e.target.closest("button"); if (!b) return;
+  const [path, id] = b.dataset.dl ? ["download", b.dataset.dl] : b.dataset.cancel ? ["cancel", b.dataset.cancel] : b.dataset.del ? ["delete", b.dataset.del] : [];
+  if (!path) return;
+  if (path === "delete" && !confirm(`Delete the ${id.toUpperCase()} core? You can download it again later.`)) return;
+  await fetch("/api/" + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ brain: id }) });
+  refreshCores();
+};
+$("#setHome").onclick = () => N && N.setHome();
+$("#setAsst").onclick = () => N && N.setAssistant();
+$("#setMic").onclick = () => N && N.askMic();
+$("#memSave").onclick = async () => {
+  await fetch("/api/memory", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ memory: $("#memText").value }) });
+  $("#memSave").textContent = "Saved ✓"; setTimeout(() => $("#memSave").textContent = "Save memory", 1500);
+};
+$("#unload").onclick = async () => { await fetch("/api/stop", { method: "POST" }); $("#unload").textContent = "Unloaded ✓"; vitals(); };
+document.addEventListener("visibilitychange", () => { if (!document.hidden && $("#coresPanel").classList.contains("open")) refreshCores(); });
+
+/* ---------- vitals ---------- */
+async function vitals() {
+  try {
+    vit = await (await fetch("/api/status")).json();
+    if (vit.ram != null) $("#ram").style.width = vit.ram + "%";
+    if (vit.battery != null) $("#bat").textContent = vit.battery + "%" + (vit.charging ? "⚡" : "");
+    if (vit.temp != null) $("#temp").textContent = Math.round(vit.temp) + "°C";
+    if (!busy) setState("idle", vit.loading ? `loading ${vit.loading} core` : vit.up ? `${vit.brain} core · online` : (vit.installed && vit.installed.length ? "standby · tap to speak" : "no cores · open CORES"));
+    return vit;
+  } catch (e) { if (!busy) setState("idle", "core link down"); }
+}
+const tick = () => { const d = new Date(); $("#clock").textContent = d.toTimeString().slice(0, 5);
+  $("#date").textContent = d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }); };
+tick(); setInterval(tick, 1000);
+setInterval(vitals, 10000);
+vitals().then(v => { if (N && v && v.installed && !v.installed.length) openPanel("coresPanel"); });
+loadApps();
+</script>
+</body>
+</html>

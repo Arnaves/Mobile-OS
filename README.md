@@ -14,5 +14,8 @@ drivers we can't get. It runs as a layer of AI on top of Android:
 | **HUD** (`termux/hud.html`) | Sci-fi app: reactor core, brain switcher, camera vision, voice, live vitals |
 | **Interface** | Minimal launcher + assistant gesture + automations (roadmap) |
 
+**New: the Android app.** Install one APK and the phone becomes AXIOM (launcher, voice assistant, local AI).
+See **[android/README.md](android/README.md)**, or grab [`releases/AXIOM-1.0.apk`](releases/AXIOM-1.0.apk).
+
 Start here: **[docs/BLUEPRINT.md](docs/BLUEPRINT.md)** (full plan) and
 **[termux/README.md](termux/README.md)** (install in about 15 minutes).
