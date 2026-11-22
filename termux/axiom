@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+"""AXIOM: local brain switchboard for Termux. Stdlib only."""
+import base64, configparser, json, os, re, signal, subprocess, sys, time, urllib.request
+
+AX = os.path.expanduser("~/axiom")
+CONF = configparser.ConfigParser()
+CONF.read(os.path.join(AX, "axiom.conf"))
+BRAINS = dict(CONF["brains"]) if CONF.has_section("brains") else {}
+PORT = CONF.getint("server", "port", fallback=8080)
+THREADS = CONF.get("server", "threads", fallback="4")
+CTX = CONF.get("server", "context", fallback="4096")
+PIDF, STATEF = os.path.join(AX, "server.pid"), os.path.join(AX, "brain")
+URL = f"http://127.0.0.1:{PORT}"
+
+# Fast deterministic router: no extra model needed, costs 0 ms.
+ROUTES = [
+    ("code",  r"\b(code|python|bash|script|function|bug|error|compile|regex|sql|javascript|kotlin|html|css)\b"),
+    ("think", r"\b(why|prove|plan|strategy|compare|decide|calculate|solve|math|step by step|reason|pros and cons)\b"),
+]
+
+def route(prompt):
+    for brain, pat in ROUTES:
+        if re.search(pat, prompt, re.I) and brain in BRAINS:
+            return brain
+    return "chat"
+
+def current():
+    try:
+        pid = int(open(PIDF).read())
+        os.kill(pid, 0)
+        return open(STATEF).read().strip()
+    except Exception:
+        return None
+
+def healthy():
+    try:
+        return urllib.request.urlopen(URL + "/health", timeout=2).status == 200
+    except Exception:
+        return False
+
+def stop():
+    try:
+        os.kill(int(open(PIDF).read()), signal.SIGTERM)
+        time.sleep(1)
+    except Exception:
+        pass
+    for f in (PIDF, STATEF):
+        if os.path.exists(f):
+            os.remove(f)
+
+def start(brain):
+    if brain not in BRAINS:
+        sys.exit(f"unknown brain '{brain}'. options: {', '.join(BRAINS)}")
+    if current() == brain and healthy():
+        return
+    stop()
+    print(f"[axiom] loading {brain} brain ({BRAINS[brain]}) ...", file=sys.stderr)
+    log = open(os.path.join(AX, "logs", f"{brain}.log"), "a")
+    p = subprocess.Popen(
+        ["llama-server", "-hf", BRAINS[brain], "--port", str(PORT), "-t", THREADS,
+         "-c", CTX, "--jinja", "--host", "127.0.0.1"],
+        stdout=log, stderr=log, start_new_session=True)
+    open(PIDF, "w").write(str(p.pid))
+    open(STATEF, "w").write(brain)
+    for _ in range(1800):  # first run may be downloading GBs
+        if healthy():
+            print(f"[axiom] {brain} online at {URL}", file=sys.stderr)
+            return
+        if p.poll() is not None:
+            sys.exit(f"[axiom] server exited; see {AX}/logs/{brain}.log")
+        time.sleep(1)
+    sys.exit("[axiom] timed out waiting for server")
+
+def memory():
+    d = os.path.join(AX, "memory")
+    parts = [open(os.path.join(d, f)).read() for f in sorted(os.listdir(d)) if f.endswith(".md")] if os.path.isdir(d) else []
+    return "\n\n".join(parts)
+
+def chat(content, brain):
+    start(brain)
+    system = ("You are AXIOM, an on-device AI running fully offline on the user's phone. "
+              "Be concise and precise.\n\nWhat you know about the user:\n" + memory())
+    body = {"messages": [{"role": "system", "content": system},
+                         {"role": "user", "content": content}], "stream": True}
+    req = urllib.request.Request(URL + "/v1/chat/completions", json.dumps(body).encode(),
+                                 {"Content-Type": "application/json"})
+    out = []
+    with urllib.request.urlopen(req) as r:
+        for line in r:
+            line = line.decode().strip()
+            if not line.startswith("data:") or line.endswith("[DONE]"):
+                continue
+            delta = json.loads(line[5:])["choices"][0]["delta"].get("content") or ""
+            out.append(delta)
+            print(delta, end="", flush=True)
+    print()
+    return "".join(out)
+
+def see(question):
+    img = os.path.join(AX, "eye.jpg")
+    subprocess.run(["termux-camera-photo", "-c", "0", img], check=True)
+    b64 = base64.b64encode(open(img, "rb").read()).decode()
+    return chat([{"type": "text", "text": question or "Describe what you see."},
+                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}], "vision")
+
+def voice():
+    print("[axiom] voice mode: speak after the beep. Say 'goodbye' to exit.")
+    while True:
+        heard = subprocess.run(["termux-speech-to-text"], capture_output=True, text=True).stdout.strip()
+        if not heard:
+            continue
+        print(f"> {heard}")
+        if re.search(r"\b(goodbye|exit|stop)\b", heard, re.I):
+            break
+        reply = chat(heard, route(heard))
+        reply = re.sub(r"<think>.*?</think>", "", reply, flags=re.S)
+        subprocess.run(["termux-tts-speak", reply[:1500]])
+
+USAGE = """AXIOM: local AI switchboard
+  axiom ask "question"        auto-route to the best brain
+  axiom ask -b code "..."     force a brain (chat|think|code|vision)
+  axiom see ["question"]      take a photo and ask the vision brain
+  axiom voice                 hands-free talk loop (offline)
+  axiom start <brain>         load a brain + web UI at http://127.0.0.1:8080
+  axiom stop | status"""
+
+def main(a):
+    if not a or a[0] in ("-h", "--help", "help"):
+        print(USAGE)
+    elif a[0] == "start":
+        start(a[1] if len(a) > 1 else "chat")
+    elif a[0] == "stop":
+        stop(); print("[axiom] offline")
+    elif a[0] == "status":
+        b = current()
+        print(f"brain: {b or 'none'}  server: {'up' if healthy() else 'down'}  brains: {', '.join(BRAINS)}")
+    elif a[0] == "ask":
+        rest = a[1:]
+        brain = None
+        if rest[:1] == ["-b"]:
+            brain, rest = rest[1], rest[2:]
+        q = " ".join(rest) or sys.stdin.read()
+        chat(q, brain or route(q))
+    elif a[0] == "see":
+        see(" ".join(a[1:]))
+    elif a[0] == "voice":
+        voice()
+    else:
+        print(USAGE); sys.exit(1)
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
